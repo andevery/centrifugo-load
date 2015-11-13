@@ -71,8 +71,7 @@ func (c *Client) DisconnectHandler(_ *centrifuge.Centrifuge) error {
 	case <-c.done:
 		return nil
 	default:
-		c.connect()
-		// c.subscribe()
+		go c.prepare()
 	}
 
 	return nil
@@ -84,19 +83,21 @@ func (c *Client) Start() {
 		defer c.wg.Done()
 		defer c.cent.Close()
 
-		c.connect()
-		log.Println("Connected")
-		// c.subscribe()
-
+		c.prepare()
 		c.perform()
 	}()
+}
+
+func (c *Client) prepare() {
+	c.connect()
+	// c.subscribe()
 }
 
 func (c *Client) connect() {
 	c.cent.Close()
 	err := c.cent.Connect()
 	if err != nil {
-		log.Println(err)
+		log.Println("Centrifuge connect: ", err)
 	}
 }
 
