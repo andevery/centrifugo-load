@@ -17,13 +17,13 @@ import (
 )
 
 var (
-	numConnections    = flag.Int("c", 1, "Number of connections")
-	numChannels       = flag.Int("C", 1, "Number of channels per connection")
-	host              = flag.String("h", "localhost:8000", "Centrifugo host:port")
-	messagesPerSecond = flag.Int("m", 2, "Messages per second")
-	secret            = flag.String("s", "secret", "Secret key")
-	namespace         = flag.String("n", "load", "Secret key")
-	wsUrl             = ""
+	numConnections = flag.Int("c", 1, "Number of connections")
+	numChannels    = flag.Int("C", 1, "Number of channels per connection")
+	host           = flag.String("h", "localhost:8000", "Centrifugo host:port")
+	msgDelay       = flag.Int("d", 500, "Message delay (ms)")
+	secret         = flag.String("s", "secret", "Secret key")
+	namespace      = flag.String("n", "load", "Secret key")
+	wsUrl          = ""
 )
 
 type Client struct {
@@ -49,15 +49,15 @@ func NewClient(num int, wg *sync.WaitGroup, done chan bool) *Client {
 		Token:     token,
 	}
 
-	_ = &centrifuge.EventHandler{
+	events := &centrifuge.EventHandler{
 		OnDisconnect: client.DisconnectHandler,
 		OnPrivateSub: nil,
 		OnRefresh:    nil,
 	}
 
-	cent := centrifuge.NewCentrifuge(wsUrl, creds, nil, centrifuge.DefaultConfig)
+	cent := centrifuge.NewCentrifuge(wsUrl, creds, events, centrifuge.DefaultConfig)
 
-	delay := time.Second / time.Duration(*messagesPerSecond)
+	delay := time.Duration(*msgDelay) * time.Millisecond
 
 	client.creds = creds
 	client.cent = cent
@@ -90,14 +90,15 @@ func (c *Client) Start() {
 
 func (c *Client) prepare() {
 	c.connect()
-	// c.subscribe()
+	if c.cent.Connected() {
+		c.subscribe()
+	}
 }
 
 func (c *Client) connect() {
-	c.cent.Close()
 	err := c.cent.Connect()
 	if err != nil {
-		log.Println("Centrifuge connect: ", err)
+		log.Println(c.creds.User, "Centrifuge connect: ", err)
 	}
 }
 
@@ -113,7 +114,7 @@ func (c *Client) subscribe() {
 	for channel := 1; channel <= *numChannels; channel++ {
 		sub, err := c.cent.Subscribe(fmt.Sprintf("%s:user%s-ch%v", *namespace, c.creds.User, channel), events)
 		if err != nil {
-			log.Fatal(err)
+			log.Println(c.creds.User, "Subscribe: ", err)
 		}
 		c.subs = append(c.subs, sub)
 	}
@@ -127,19 +128,18 @@ func (c *Client) perform() {
 		case <-c.done:
 			return
 		default:
-			// if c.cent.Connected() {
-			// 	err := c.subs[rand.Intn(len(c.subs))].Publish([]byte("{\"message\":\"hello\"}"))
-			// 	if err != nil {
-			// 		log.Println("Publish: ", err)
-			// 	}
-			// }
+			if c.cent.Connected() {
+				err := c.subs[rand.Intn(len(c.subs))].Publish([]byte("{\"message\":\"hello\"}"))
+				if err != nil {
+					log.Println("Publish: ", err)
+				}
+			}
 			time.Sleep(c.delay)
 		}
 	}
 }
 
 func (c *Client) MessageHandler(sub *centrifuge.Sub, msg libcentrifugo.Message) error {
-	// log.Println(string(*msg.Data))
 	return nil
 }
 
